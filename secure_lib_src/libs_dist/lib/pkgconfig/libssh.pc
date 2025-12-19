@@ -1,0 +1,6 @@
+Name: libssh
+Description: The SSH Library
+Version: 0.10.90
+Libs: -L/Users/deymonster/apk/CarService_source/tbox/android_cpp/secure_lib_src/libs_dist/lib -lssh
+Cflags: -I/Users/deymonster/apk/CarService_source/tbox/android_cpp/secure_lib_src/libs_dist/include
+

@@ -1,0 +1,11 @@
+prefix=/Users/deymonster/apk/CarService_source/tbox/android_cpp/secure_lib_src/libs_dist
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: OpenSSL-libssl
+Description: Secure Sockets Layer and cryptography libraries
+Version: 1.1.1w
+Requires.private: libcrypto
+Libs: -L${libdir} -lssl
+Cflags: -I${includedir}
