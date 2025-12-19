@@ -34,12 +34,23 @@ int main(int argc, char* argv[]) {
     std::string vin = tbox::VinReader::getVin();
     std::cout << "    Detected VIN: " << vin << std::endl;
 
-    // 3. Тест mTLS (MOCK - Симуляция ответа сервера)
-    std::cout << "\n[*] Testing mTLS Connection..." << std::endl;
-    std::cout << "[MOCK] Skipping real network call. Simulating SUCCESS response." << std::endl;
+    // 3. Тест mTLS (REAL - Проверка соединения)
+    std::cout << "\n[*] Testing mTLS Connection (REAL)..." << std::endl;
+    // std::cout << "[MOCK] Skipping real network call. Simulating SUCCESS response." << std::endl;
     
-    // std::string response = tbox::logic::sendVinToServer(vin, server_host);
+    // Используем "localhost:8443" если запускаем на эмуляторе с пробросом, 
+    // или IP компьютера если на реальном девайсе.
+    // Функция sendVinToServer сама добавит префикс https:// и суффикс :8443/graphql (из обфусцированных данных)
+    // Но подождите, в tbox_logic.cpp:
+    // std::string url = url_prefix + host + url_suffix;
+    // url_prefix = "https://"
+    // url_suffix = ":8443/graphql"
+    // Значит host должен быть просто IP или домен.
     
+    std::string response = tbox::logic::sendVinToServer(vin, server_host);
+    std::cout << "    Server Response: " << response << std::endl;
+    
+    /*
     // Создаем фейковый JSON ответ, который ожидает парсер
     // serverIp: куда пробрасывать трафик
     // proxyPort: порт на сервере (обычно 10022 и т.д., но для теста возьмем 8111 или любой)
@@ -50,15 +61,16 @@ int main(int argc, char* argv[]) {
         "\"data\": {"
             "\"registerDevice\": {"
                 "\"success\": true,"
-                "\"message\": \"Mock Success\","
+                "\"message\": \"Device registered\","
                 "\"config\": {"
                     "\"serverIp\": \"" + mock_target_ip + "\","
-                    "\"proxyPort\": \"" + mock_proxy_port + "\","
+                    "\"proxyPort\": " + mock_proxy_port + ","
                     "\"subscriptionActive\": true"
                 "}"
             "}"
         "}"
     "}";
+    */
     
     std::cout << "Server Response (Simulated): " << response << std::endl;
 
