@@ -3,18 +3,27 @@
 #include <cstring>
 #include <cstdlib>
 #include <unistd.h>
-#include <sys/ptrace.h>
+#include <csignal>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
 
+#if defined(__linux__) || defined(__ANDROID__)
+    #include <sys/ptrace.h>
+#endif
+
 namespace tbox {
 
     bool Security::checkDebugger() {
+#if defined(__linux__) || defined(__ANDROID__)
         // 1. Простейшая проверка через ptrace (не сработает, если мы уже под ptrace)
-        if (ptrace(PTRACE_TRACEME, 0, 1, 0) == -1) {
+        // Note: PTRACE_TRACEME arg types may vary, using 0, 0, 0 for broad compatibility if needed, 
+        // but standard linux is (request, pid, addr, data)
+        #ifdef PTRACE_TRACEME
+        if (ptrace(PTRACE_TRACEME, 0, 0, 0) == -1) {
             return true; // Нас уже кто-то трассирует
         }
+        #endif
         
         // 2. Чтение /proc/self/status и поиск TracerPid
         FILE* fp = fopen("/proc/self/status", "r");
@@ -33,6 +42,9 @@ namespace tbox {
         }
         fclose(fp);
         return traced;
+#else
+        return false;
+#endif
     }
 
     bool Security::checkFrida() {
