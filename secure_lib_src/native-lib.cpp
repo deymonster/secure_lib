@@ -1,73 +1,135 @@
+#include <jni.h>
 #include <string>
+#include <iostream>
 #include "tbox_logic.hpp"
+#include "tbox_callback.hpp"
 
-// Linter workaround: Mock JNI types if headers are missing
-#if defined(__has_include) && !__has_include(<jni.h>)
-    #include <cstdint>
-    using jstring = void*;
-    using jobject = void*;
-    using jboolean = unsigned char;
-    #define JNIEXPORT
-    #define JNICALL
-    
-    struct JNIEnvMock {
-        const char* GetStringUTFChars(jstring, jboolean*) { return ""; }
-        void ReleaseStringUTFChars(jstring, const char*) {}
-        jstring NewStringUTF(const char*) { return nullptr; }
-    };
-    using JNIEnv = JNIEnvMock;
-#else
-    #include <jni.h>
-#endif
+// Глобальная ссылка на JVM, нужна чтобы получить JNIEnv в фоновом потоке
+JavaVM* g_jvm = nullptr;
+jobject g_listenerObject = nullptr; // Ссылка на Java объект слушателя
 
-#ifdef __cplusplus
+// Класс-мост: получает вызовы от C++ logic и перенаправляет их в Java
+class AndroidCallback : public tbox::ITBoxCallback {
+public:
+    void onServerStatusChanged(bool isConnected) override {
+        JNIEnv* env = getEnv();
+        if (!env || !g_listenerObject) return;
+
+        // Ищем метод: void onServerStatusChanged(boolean)
+        jclass cls = env->GetObjectClass(g_listenerObject);
+        jmethodID mid = env->GetMethodID(cls, "onServerStatusChanged", "(Z)V");
+        if (mid) {
+            env->CallVoidMethod(g_listenerObject, mid, (jboolean)isConnected);
+        }
+    }
+
+    void onTboxStatusChanged(bool isConnected) override {
+        JNIEnv* env = getEnv();
+        if (!env || !g_listenerObject) return;
+
+        // Ищем метод: void onTboxStatusChanged(boolean)
+        jclass cls = env->GetObjectClass(g_listenerObject);
+        jmethodID mid = env->GetMethodID(cls, "onTboxStatusChanged", "(Z)V");
+        if (mid) {
+            env->CallVoidMethod(g_listenerObject, mid, (jboolean)isConnected);
+        }
+    }
+
+    void onConfigReceived(const std::string& vin, bool subActive) override {
+        JNIEnv* env = getEnv();
+        if (!env || !g_listenerObject) return;
+
+        // Ищем метод: void onConfigReceived(String, boolean)
+        jclass cls = env->GetObjectClass(g_listenerObject);
+        jmethodID mid = env->GetMethodID(cls, "onConfigReceived", "(Ljava/lang/String;Z)V");
+        if (mid) {
+            jstring jVin = env->NewStringUTF(vin.c_str());
+            env->CallVoidMethod(g_listenerObject, mid, jVin, (jboolean)subActive);
+            env->DeleteLocalRef(jVin);
+        }
+    }
+
+    void onLog(const std::string& message) override {
+        JNIEnv* env = getEnv();
+        if (!env || !g_listenerObject) return;
+
+        // Ищем метод: void onLog(String)
+        jclass cls = env->GetObjectClass(g_listenerObject);
+        jmethodID mid = env->GetMethodID(cls, "onLog", "(Ljava/lang/String;)V");
+        if (mid) {
+            jstring jMsg = env->NewStringUTF(message.c_str());
+            env->CallVoidMethod(g_listenerObject, mid, jMsg);
+            env->DeleteLocalRef(jMsg);
+        }
+    }
+
+private:
+    JNIEnv* getEnv() {
+        JNIEnv* env;
+        int status = g_jvm->GetEnv((void**)&env, JNI_VERSION_1_6);
+        if (status == JNI_EDETACHED) {
+            if (g_jvm->AttachCurrentThread(&env, nullptr) != 0) {
+                return nullptr;
+            }
+        }
+        return env;
+    }
+};
+
+// Глобальный экземпляр колбэка
+static AndroidCallback g_androidCallback;
+
 extern "C" {
-#endif
 
-JNIEXPORT jstring JNICALL
-Java_com_android_car_tbox_secure_SecureTBox_sendVin(
-        JNIEnv* env,
-        jobject /* this */,
-        jstring vin_j,
-        jstring host_j) {
-    
-    if (!env) return nullptr;
+// Инициализация при загрузке библиотеки
+JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved) {
+    g_jvm = vm;
+    return JNI_VERSION_1_6;
+}
 
-    const char* vin_c = env->GetStringUTFChars(vin_j, 0);
-    const char* host_c = env->GetStringUTFChars(host_j, 0);
+// Start Service: теперь принимает объект Listener из Java
+// Signature: (Lcom/tbox/secure/TBoxListener;)V
+JNIEXPORT void JNICALL
+Java_com_tbox_secure_NativeLib_startTBox(JNIEnv* env, jobject /* this */, jobject listener) {
     
-    std::string vin(vin_c ? vin_c : "");
-    std::string host(host_c ? host_c : "");
-    
-    if (vin_c) env->ReleaseStringUTFChars(vin_j, vin_c);
-    if (host_c) env->ReleaseStringUTFChars(host_j, host_c);
+    // Создаем глобальную ссылку на слушателя, чтобы GC его не удалил
+    if (g_listenerObject) {
+        env->DeleteGlobalRef(g_listenerObject);
+    }
+    g_listenerObject = env->NewGlobalRef(listener);
 
-    std::string response = tbox::logic::sendVinToServer(vin, host);
-    
-    return env->NewStringUTF(response.c_str());
+    tbox::logic::startTBoxService(&g_androidCallback);
 }
 
 JNIEXPORT void JNICALL
-Java_com_android_car_tbox_secure_SecureTBox_performSetup(
-        JNIEnv* env,
-        jobject /* this */,
-        jstring serverIp_j,
-        jstring proxyPort_j) {
-            
-    if (!env) return;
-
-    const char* serverIp_c = env->GetStringUTFChars(serverIp_j, 0);
-    const char* proxyPort_c = env->GetStringUTFChars(proxyPort_j, 0);
+Java_com_tbox_secure_NativeLib_stopTBox(JNIEnv* env, jobject /* this */) {
+    tbox::logic::stopTBoxService();
     
-    std::string serverIp(serverIp_c ? serverIp_c : "");
-    std::string proxyPort(proxyPort_c ? proxyPort_c : "");
-    
-    if (serverIp_c) env->ReleaseStringUTFChars(serverIp_j, serverIp_c);
-    if (proxyPort_c) env->ReleaseStringUTFChars(proxyPort_j, proxyPort_c);
-
-    tbox::logic::performTBoxSetup(serverIp, proxyPort);
+    if (g_listenerObject) {
+        env->DeleteGlobalRef(g_listenerObject);
+        g_listenerObject = nullptr;
+    }
 }
 
-#ifdef __cplusplus
+JNIEXPORT void JNICALL
+Java_com_tbox_secure_NativeLib_getConfig(JNIEnv* env, jobject /* this */) {
+    tbox::logic::executeGetConfig();
 }
-#endif
+
+JNIEXPORT void JNICALL
+Java_com_tbox_secure_NativeLib_applyConfig(JNIEnv* env, jobject /* this */) {
+    tbox::logic::executeApplyConfig();
+}
+
+JNIEXPORT void JNICALL
+Java_com_tbox_secure_NativeLib_checkTBoxStatus(JNIEnv* env, jobject /* this */) {
+    tbox::logic::executeCheckTBoxStatus();
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_tbox_secure_NativeLib_getVin(JNIEnv* env, jobject /* this */) {
+    std::string vin = tbox::logic::executeGetVin();
+    return env->NewStringUTF(vin.c_str());
+}
+
+} // extern "C"

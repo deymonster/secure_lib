@@ -22,3 +22,12 @@ libssh/
 
 # Logs
 *.log
+
+# Secrets and Keys
+*.pem
+*.key
+*.jks
+*.keystore
+
+# Test tools
+mock_server.py
